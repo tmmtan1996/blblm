@@ -5,44 +5,93 @@
 #' Linear Regression with Little Bag of Bootstraps
 "_PACKAGE"
 
-
 ## quiets concerns of R CMD check re: the .'s that appear in pipelines
 # from https://github.com/jennybc/googlesheets/blob/master/R/googlesheets.R
-utils::globalVariables(c("."))
+utils::globalVariables(c(".","plan","fit","multicore","capture.output","select")
+                       )
 
-
+#' @inheritParams split_data
+#' @inheritParams lm_each_subsample
 #' @export
-blblm <- function(formula, data, m = 10, B = 5000) {
+blblm <- function(formula, data, m , B ) {
+
+  ans<-readline(prompt ="Do you want to use parallelization?(Yes/No) Please enter: ")
+  dat<-selectList(data)
+
+  if(ans=="Yes"||ans=="Y"){
+    res<-par_blblm(formula, dat, n=4, m, B)
+    class(res) <- "blblm"
+    invisible(res)
+  }else{
+    data_list <- split_data(dat, m)
+    estimates <- map(
+      data_list,
+      ~ lm_each_subsample(formula = formula, data = dat, n = nrow(dat), B = B))
+    res <- list(estimates = estimates, formula = formula)
+    class(res) <- "blblm"
+    invisible(res)
+  }
+}
+
+#' @inheritParams split_data
+#' @inheritParams lm_each_subsample
+#' use parallelization to do the little bag of bootstraps.
+par_blblm <- function(formula, data, n, m, B ){
+
+  suppressWarnings(future::plan(future::multicore, workers = n))
+
   data_list <- split_data(data, m)
-  estimates <- map(
+
+  estimates <- furrr::future_map(
     data_list,
     ~ lm_each_subsample(formula = formula, data = ., n = nrow(data), B = B))
   res <- list(estimates = estimates, formula = formula)
-  class(res) <- "blblm"
-  invisible(res)
+  return(res)
 }
 
+#' @inheritParams split_data
+#' ask the user to choose specify columns of the dataset that could be
+#' used in the little bag of bootstraps algorithm.
+selectList<-function(data){
+  pos<-readline(prompt = "Would you like to choose a list of file of datasets? (Yes/No)")
+  dat<-data
+  col<-NULL
+  while(pos=="Yes" || pos=="Y"){
+    name<-readline(prompt = "Insert one column name that would be choosed: ")
+    col<-c(col,name)
+    dat<-data[,col]
+    pos<-readline(prompt = "Would you like to choose another list of file of datasets? (Yes/No) ")
+  }
+  return(dat)
+}
 
+#' @param data a data set
+#' @param m integer
 #' split data into m parts of approximated equal sizes
 split_data <- function(data, m) {
   idx <- sample.int(m, nrow(data), replace = TRUE)
   data %>% split(idx)
 }
 
-
+#' @param B repeat B times
+#' @inheritParams lm_each_boot
 #' compute the estimates
 lm_each_subsample <- function(formula, data, n, B) {
   replicate(B, lm_each_boot(formula, data, n), simplify = FALSE)
 }
 
-
+#' @param n split n small data sets
+#' @inheritParams lm1
 #' compute the regression estimates for a blb dataset
 lm_each_boot <- function(formula, data, n) {
   freqs <- rmultinom(1, n, rep(1, nrow(data)))
   lm1(formula, data, freqs)
 }
 
-
+#' @param formula fit linear model
+#' @param data a data set
+#' @param freqs frequency
+#' @param fit fitted linear model
 #' estimate the regression estimates based on given the number of repetitions
 lm1 <- function(formula, data, freqs) {
   # drop the original closure of formula,
@@ -52,13 +101,13 @@ lm1 <- function(formula, data, freqs) {
   list(coef = blbcoef(fit), sigma = blbsigma(fit))
 }
 
-
+#' @param fit variable Yhat from the fitted linear model
 #' compute the coefficients from fit
 blbcoef <- function(fit) {
   coef(fit)
 }
 
-
+#' @param fit
 #' compute sigma from fit
 blbsigma <- function(fit) {
   p <- fit$rank
@@ -149,4 +198,73 @@ map_cbind <- function(.x, .f, ...) {
 
 map_rbind <- function(.x, .f, ...) {
   map(.x, .f, ...) %>% reduce(rbind)
+}
+
+#' GLM model
+#'
+#' @inheritParams split_data
+#' @inheritParams glm_each_subsample
+#' @inheritParams glm1
+#' @export
+GLM_blblm <- function(formula, data, m , B ) {
+
+  ans<-readline(prompt ="Do you want to use parallelization?(Yes/No) Please enter: ")
+  dat<-selectList(data)
+
+  if(ans=="Yes"||ans=="Y"){
+    res<-par_blblm(formula, dat, n=4, m, B)
+    class(res) <- "blblm"
+    invisible(res)
+  }else{
+    data_list <- split_data(dat, m)
+    estimates <- map(
+      data_list,
+      ~ glm_each_subsample(formula = formula, data = dat, n = nrow(dat), B = B))
+    res <- list(estimates = estimates, formula = formula)
+    class(res) <- "blblm"
+    invisible(res)
+  }
+}
+
+#' @inheritParams split_data
+#' @inheritParams glm_each_subsample
+#' use parallelization to do the little bag of bootstraps.
+par_glmblblm <- function(formula, data, n, m, B ){
+
+  suppressWarnings(future::plan(future::multicore, workers = n))
+
+  data_list <- split_data(data, m)
+
+  estimates <- furrr::future_map(
+    data_list,
+    ~ glm_each_subsample(formula = formula, data = ., n = nrow(data), B = B))
+  res <- list(estimates = estimates, formula = formula)
+  return(res)
+}
+#' @param B repeat B times
+#' @inheritParams glm_each_boot
+#' compute the estimates
+glm_each_subsample <- function(formula, data, n, B) {
+  replicate(B, glm_each_boot(formula, data, n), simplify = FALSE)
+}
+
+#' @param n split n small data sets
+#' @inheritParams glm1
+#' compute the GLM estimates for a blb dataset
+glm_each_boot <- function(formula, data, n) {
+  freqs <- rmultinom(1, n, rep(1, nrow(data)))
+  glm1(formula, data, freqs)
+}
+
+#' @param formula fit linear model
+#' @param data a data set
+#' @param freqs frequency
+#' @param fit fitted linear model
+#' estimate the regression estimates based on given the number of repetitions
+glm1 <- function(formula, data, freqs) {
+  # drop the original closure of formula,
+  # otherwise the formula will pick a wront variable from the global scope.
+  environment(formula) <- environment()
+  fit <- glm(formula, data, weights = freqs)
+  list(coef = blbcoef(fit), sigma = blbsigma(fit))
 }

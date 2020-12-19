@@ -1,0 +1,77 @@
+---
+title: "my-vignette"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{my-vignette}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+In this project, we are going to work on bag of little bootstraps algorithm.
+We used a package with an implemented the bag of little bootstraps for linear regression model, and we need to improve this package. 
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(blblm)
+```
+
+One way to improve this package is to make it possible to use more than one CPUs.The blblm function needs four variables such as a formula of fitting the linear regression model,a data set, a number of times m the bag of little bootstraps slpited the data set, and a number of times B to repeat the process. In the blblm function, I used an if-statement to ask the user if they would like to use parallelization that was run the function with more than one CPUs. If the user chose to use parallelization, he could answer either "Yes" or "Y" to access a new function "par_blblm". The par_blblm would be discussed later. If the user chose not to use parallelization, the function led to do the bag of little bootstrap algorithm which fitting the linear regression model.
+```{r}
+blblm <- function(formula, data, m , B ) {
+
+  ans<-readline(prompt ="Do you want to use parallelization?(Yes/No) Please enter: ")
+  dat<-selectList(data)
+
+  if(ans=="Yes"||ans=="Y"){
+    res<-par_blblm(formula, dat, n=4, m, B)
+    class(res) <- "blblm"
+    invisible(res)
+  }else{
+    data_list <- split_data(dat, m)
+    estimates <- map(
+      data_list,
+      ~ lm_each_subsample(formula = formula, data = dat, n = nrow(dat), B = B))
+    res <- list(estimates = estimates, formula = formula)
+    class(res) <- "blblm"
+    invisible(res)
+  }
+}
+```
+
+If the user chose to use multiple CUPs to do the bag of little bootstrap algorithm, the user answered "Yes" or "Y". The computer would call the function par_blblm.The number of CPUs was fixed which was equal to four. The function is very similar to the function blblm. The only different is to use future_map() function in furrr package to do the bag of little bootstrap instead of using map() function. 
+```{r}
+par_blblm <- function(formula, data, n, m, B ){
+
+  suppressWarnings(future::plan(future::multicore, workers = n))
+
+  data_list <- split_data(data, m)
+
+  estimates <- furrr::future_map(
+    data_list,
+    ~ lm_each_subsample(formula = formula, data = ., n = nrow(data), B = B))
+  res <- list(estimates = estimates, formula = formula)
+  return(res)
+}
+```
+
+Another way to improve this package is to ask the user to select the specific column of the data set in order to reduce the memory usage. To do this part, I wrote a new function call selectList, with one variable, data. In the selectList function, I first asked the user whether they would like to choose the specific columns of the dataset or not. If they chose "Yes" or "Y", the function continued to ask which column they would like to choose by using a while-loop. The user could only select one column at a time, and he would continued to select columns until he stopped the while-loop by typing anything except "Yes" and "Y". The function would return the new dataset back to the blblm function. If the user want to use the whole dataset instead of choosing specific columns of the dataset, the user could answer anything except "Yes" or "Y". The function would return a whole dataset back to blblm function. 
+```{r}
+selectList<-function(data){
+  pos<-readline(prompt = "Would you like to choose a list of file of datasets? (Yes/No)")
+  dat<-data
+  col<-NULL
+  while(pos=="Yes" || pos=="Y"){
+    name<-readline(prompt = "Insert one column name that would be choosed: ")
+    col<-c(col,name)
+    dat<-data[,col]
+    pos<-readline(prompt = "Would you like to choose another list of file of datasets? (Yes/No) ")
+  }
+  return(dat)
+}
+```
+
+The third thing I did to improve this project is to write GLM model. I created a GLM_blblm function to fitting GLM model by using bag of little bootstrap, and I created a par_glmblblm function to fitting GLM model with the bag of little bootstrap by using parallelization.I also wrote a glm_each_subsample function to repeat the process of the bag of little bootstraps fitting GLM model, and a glm_each_boot function to compute the estimate of blb data. 
